@@ -1,0 +1,26 @@
+[
+  {
+    "arguments": [
+      "/opt/wasi-sdk/bin/clang++",
+      "--sysroot=/opt/wasi-sdk/share/wasi-sysroot",
+      "-c",
+      "-W",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-Wno-unused",
+      "-Wconversion",
+      "-Wsign-conversion",
+      "-fno-exceptions",
+      "-DNDEBUG",
+      "-Oz",
+      "-flto",
+      "-o",
+      "build/main.o",
+      "src/main.cpp"
+    ],
+    "directory": "/home/zayac/src/wasm4-cpp",
+    "file": "/home/zayac/src/wasm4-cpp/src/main.cpp",
+    "output": "/home/zayac/src/wasm4-cpp/build/main.o"
+  }
+]
