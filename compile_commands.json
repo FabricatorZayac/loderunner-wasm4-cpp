@@ -2,7 +2,6 @@
   {
     "arguments": [
       "/opt/wasi-sdk/bin/clang++",
-      "--sysroot=/opt/wasi-sdk/share/wasi-sysroot",
       "-c",
       "-W",
       "-Wall",
@@ -12,6 +11,8 @@
       "-Wconversion",
       "-Wsign-conversion",
       "-fno-exceptions",
+      "-std=c++23",
+      "-I./src",
       "-DNDEBUG",
       "-Oz",
       "-flto",

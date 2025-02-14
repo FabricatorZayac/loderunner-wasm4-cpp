@@ -2,8 +2,13 @@ ifndef WASI_SDK_PATH
 $(error Download the WASI SDK (https://github.com/WebAssembly/wasi-sdk) and set $$WASI_SDK_PATH)
 endif
 
-CC = "$(WASI_SDK_PATH)/bin/clang" --sysroot="$(WASI_SDK_PATH)/share/wasi-sysroot"
-CXX = "$(WASI_SDK_PATH)/bin/clang++" --sysroot="$(WASI_SDK_PATH)/share/wasi-sysroot"
+ifneq ($(WASI_SDK_PATH), /opt/wasi-sdk)
+	CC = "$(WASI_SDK_PATH)/bin/clang" --sysroot="$(WASI_SDK_PATH)/share/wasi-sysroot"
+	CXX = "$(WASI_SDK_PATH)/bin/clang++" --sysroot="$(WASI_SDK_PATH)/share/wasi-sysroot"
+else
+	CC = "$(WASI_SDK_PATH)/bin/clang"
+	CXX = "$(WASI_SDK_PATH)/bin/clang++"
+endif
 
 # Optional dependency from binaryen for smaller builds
 WASM_OPT = wasm-opt
@@ -14,6 +19,7 @@ DEBUG = 0
 
 # Compilation flags
 CFLAGS = -W -Wall -Wextra -Werror -Wno-unused -Wconversion -Wsign-conversion -MMD -MP -fno-exceptions
+CFLAGS += -std=c++23 -I./src
 ifeq ($(DEBUG), 1)
 	CFLAGS += -DDEBUG -O0 -g
 else
