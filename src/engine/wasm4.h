@@ -109,6 +109,7 @@ namespace control {
 
 namespace draw {
     struct Framebuffer;
+    struct DrawIndices;
 
     using BlitFlags = std::bitset<4>;
 
@@ -134,9 +135,11 @@ namespace draw {
         T self,
         std::array<i32, 2> start,
         BlitTransform transform,
-        Framebuffer &fb
+        Framebuffer &fb,
+        DrawIndices colors
     ) {
         self.blit(start, transform, fb);
+        self.blit_with_colors(start, colors, transform, fb);
     };
 
     enum class DrawIndex : u16 {
@@ -171,19 +174,28 @@ namespace draw {
 
     template<usize N>
     struct Sprite {
-        void blit(
+        void blit_with_colors(
             std::array<i32, 2> start,
+            DrawIndices colors,
             BlitTransform transform,
-            const Framebuffer &framebuffer
+            Framebuffer &framebuffer
         ) const {
             BlitFlags flags = bpp | transform;
 
-            *DRAW_COLORS = indices;
+            *DRAW_COLORS = colors;
             (void)framebuffer;
             // framebuffer.set_indices(indices);
 
             sys::blit(bytes.data(), start[0], start[1], shape[0], shape[1], flags.to_ulong());
-        } 
+        }
+
+        void blit(
+            std::array<i32, 2> start,
+            BlitTransform transform,
+            Framebuffer &framebuffer
+        ) const {
+            blit_with_colors(start, indices, transform, framebuffer);
+        }
 
         static auto from_byte_array(
             std::array<u8, N> bytes,
@@ -241,7 +253,7 @@ namespace draw {
         }
         void vline(std::array<i32, 2> start, u32 len, DrawIndex color) {
             set_indices(DrawIndices::from_array({color}));
-            sys::hline(start[0], start[1], len);
+            sys::vline(start[0], start[1], len);
         }
         void rect(
             std::array<i32, 2> start,
@@ -293,18 +305,18 @@ namespace rt {
 }
 }
 
-#define main(Rt)                                         \
-static u8 RUNTIME[sizeof(Rt)];                           \
-    void w4::sys::start() {                              \
-        *(Rt *)RUNTIME = Rt::start(w4::rt::Resources()); \
-    }                                                    \
-    void w4::sys::update() {                             \
-        ((Rt *)RUNTIME)->update();                       \
-    }
+#define main(Rt)                                     \
+static u8 RUNTIME[sizeof(Rt)];                       \
+void w4::sys::start() {                              \
+    *(Rt *)RUNTIME = Rt::start(w4::rt::Resources()); \
+}                                                    \
+void w4::sys::update() {                             \
+    ((Rt *)RUNTIME)->update();                       \
+}
 
 #undef SCREEN_SIZE
 #undef PALETTE
-// #undef DRAW_COLORS
+#undef DRAW_COLORS
 #undef GAMEPAD1
 #undef GAMEPAD2
 #undef GAMEPAD3
