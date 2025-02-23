@@ -48,9 +48,12 @@ struct Tile {
             break;
         case Brick:
             if (brick_state) {
-                if (brick_state > 295 || brick_state < 10) {
+                if (brick_state > 292) {
                     fb.blit(gfx::tiles::brick, {x, y}, {});
-                    fb.rect({x, y}, {8, 4}, w4::draw::DrawIndex::Fourth, w4::draw::DrawIndex::Transparent);
+                    fb.rect({x, y}, {8, u32(300 - brick_state)}, w4::draw::DrawIndex::Fourth, w4::draw::DrawIndex::Transparent);
+                } else if (brick_state < 8) {
+                    fb.blit(gfx::tiles::brick, {x, y}, {});
+                    fb.rect({x, y}, {8, u32(brick_state)}, w4::draw::DrawIndex::Fourth, w4::draw::DrawIndex::Transparent);
                 }
                 break;
             }
