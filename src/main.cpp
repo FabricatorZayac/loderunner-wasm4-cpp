@@ -14,6 +14,8 @@ enum struct Direction {
     Up,
 };
 
+const char *DEBUG = "Normal";
+
 struct Tile {
     // 3bit
     enum Tag : u8 {
@@ -196,6 +198,7 @@ struct Jeff {
         Normal,
         Climbing,
         Roping,
+        Falling,
     };
 
     void draw(w4::draw::Framebuffer &fb, State state) const {
@@ -203,19 +206,20 @@ struct Jeff {
 
         usize index;
         switch(state) {
-        case Jeff::State::Normal:
+        case State::Falling:
+        case State::Normal:
             index = x / 8 % 2 ? 1 : 0;
             if (direction == Direction::Left) {
                 flags |= w4::draw::BlitTransform::FLIP_X;
             }
             break;
-        case Jeff::State::Roping:
+        case State::Roping:
             index = x / 8 % 2 ? 3 : 2;
             if (direction == Direction::Left) {
                 flags |= w4::draw::BlitTransform::FLIP_X;
             }
             break;
-        case Jeff::State::Climbing:
+        case State::Climbing:
             index = 4;
             if (y / 8 % 2 == 1) {
                 flags |= w4::draw::BlitTransform::FLIP_X;
@@ -362,8 +366,7 @@ struct Level {
         }
 
         // update player
-        // origin is top left pixel of the sprite
-        usize player_pos = player.getX() + (player.y / 8) * GRID_WIDTH;
+        usize player_pos = player.getX() + player.getY() * GRID_WIDTH;
         auto &current_tile = terrain[player_pos];
         if (current_tile == Tile::Brick && !current_tile.brick_state) {
             return State::Lose;
@@ -371,47 +374,32 @@ struct Level {
         if (current_tile == Tile::Gold) {
             current_tile = Tile::None;
         }
-        // TODO: clean up conditions and formatting
-        if (!(
-            // conditions that prevent falling
-            current_tile == Tile::Ladder
-            || (current_tile == Tile::Rope && player.alignedY())
-            || terrain[player_pos + GRID_WIDTH].prevents_fall()
-            || player.y == GRID_HEIGHT * 8 - 8 
-        )) {
-            // fall
+        if (jeff_state(player) == Jeff::State::Falling) {
             player.move(Direction::Down);
         } else {
-            // handle input if not falling
             // TODO: prioritize latest input instead of an elseif cascade
             if (input.dpad.left) {
                 player.direction = Direction::Left;
-                if (!(
-                    (terrain[player_pos - 1].solid() || player.getX() == 0)
-                    && player.alignedX()
-                )) {
+                if (!collides(player, Direction::Left)) {
                     player.move(Direction::Left);
                 }
             } else if (input.dpad.right) {
                 player.direction = Direction::Right;
-                if (!(
-                    (terrain[player_pos + 1].solid() || player.getX() == GRID_WIDTH - 1)
-                    && player.alignedX()
-                )) {
+                if (!collides(player, Direction::Right)) {
                     player.move(Direction::Right);
                 }
             } else if (input.dpad.up) {
-                if ((current_tile == Tile::Ladder
-                        || (terrain[player_pos + GRID_WIDTH] == Tile::Ladder && !player.alignedY()))
-                    && !((player.getY() == 0 && player.alignedY())
-                        || terrain[player_pos - GRID_WIDTH].solid()
-                        || (current_tile == Tile::None && player.alignedY()))
-                ) player.move(Direction::Up);
+                if (jeff_state(player) == Jeff::State::Climbing
+                && !collides(player, Direction::Up)) {
+                    player.move(Direction::Up);
+                }
             } else if (input.dpad.down) {
-                if ((current_tile == Tile::Rope
-                    || current_tile == Tile::Ladder
-                    || terrain[player_pos + GRID_WIDTH] == Tile::Ladder)
-                && !terrain[player_pos + GRID_WIDTH].solid()) player.move(Direction::Down);
+                if (((jeff_state(player) == Jeff::State::Climbing
+                   || jeff_state(player) == Jeff::State::Roping)
+                && !collides(player, Direction::Down))
+                || terrain[player_pos + GRID_WIDTH] == Tile::Ladder) {
+                    player.move(Direction::Down);
+                }
             }
         }
 
@@ -456,6 +444,8 @@ struct Level {
         // player
         player.draw(fb, jeff_state(player));
 
+        fb.text(DEBUG, {3, 160 - 13}, w4::draw::DrawIndex::First, w4::draw::DrawIndex::Fourth);
+
         // enemies
         for(const auto &enemy : enemies) {
             if (enemy) {
@@ -464,15 +454,56 @@ struct Level {
         }
     }
 
+    auto collides(const Jeff &jeff, Direction direction) -> bool {
+        i32 diff;
+        bool aligned;
+        switch (direction) {
+        case Direction::Right:
+            if (jeff.x == (GRID_WIDTH - 1) * 8) return true;
+            diff = 1;
+            aligned = jeff.alignedX();
+            break;
+        case Direction::Left:
+            if (jeff.x == 0) return true;
+            diff = -1;
+            aligned = jeff.alignedX();
+            break;
+        case Direction::Down:
+            if (jeff.y == (GRID_HEIGHT - 1) * 8) return true;
+            diff = GRID_WIDTH;
+            aligned = jeff.alignedY();
+            break;
+        case Direction::Up:
+            if (jeff.y == 0) return true;
+            diff = -i32(GRID_WIDTH);
+            aligned = jeff.alignedY();
+            break;
+        }
+        i32 jeff_pos = jeff.getX() + jeff.getY() * GRID_WIDTH;
+        // if (jeff_pos + diff < 0 || jeff_pos + diff > i32(GRID_WIDTH * GRID_HEIGHT)) {
+        //     return true;
+        // }
+        return terrain[usize(jeff_pos + diff)].solid() && aligned;
+    }
+
     auto jeff_state(const Jeff &jeff) const -> Jeff::State {
         usize jeff_pos = jeff.getX() + jeff.getY() * GRID_WIDTH;
-        if (terrain[jeff_pos] == Tile::Ladder) {
+        if (terrain[jeff_pos] == Tile::Ladder
+        || (terrain[jeff_pos + GRID_WIDTH] == Tile::Ladder && !jeff.alignedY())) {
+            DEBUG = "Climbing";
             return Jeff::State::Climbing;
-        } else if (terrain[jeff_pos] == Tile::Rope && player.alignedY()) {
-            return Jeff::State::Roping;
-        } else {
-            return Jeff::State::Normal;
         }
+        if (terrain[jeff_pos] == Tile::Rope && player.alignedY()) {
+            DEBUG = "Roping";
+            return Jeff::State::Roping;
+        }
+        if (!((terrain[jeff_pos + GRID_WIDTH].prevents_fall() || player.y == GRID_HEIGHT * 8 - 8) && jeff.alignedY())) {
+            DEBUG = "Falling";
+            return Jeff::State::Falling;
+        }
+
+        DEBUG = "Normal";
+        return Jeff::State::Normal;
     }
 
     // 3 bytes. One of the less annoying ways to bitpack imo
