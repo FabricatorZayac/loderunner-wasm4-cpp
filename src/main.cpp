@@ -6,6 +6,7 @@
 #include <optional>
 #include <span>
 #include <utility>
+#include <variant>
 
 enum struct Direction {
     Right,
@@ -15,6 +16,7 @@ enum struct Direction {
 };
 
 const char *DEBUG = "Normal";
+constexpr bool IS_DEBUG = true;
 
 struct Tile {
     // 3bit
@@ -29,7 +31,7 @@ struct Tile {
         Gold,
     } tag;
     // if it's a brick that's broken this acts as a timer
-    u16 brick_state = 0;
+    u16 brick_timer = 0;
 
     Tile(Tag tag) : tag(tag) {}
     Tile() : tag(None) {}
@@ -47,17 +49,16 @@ struct Tile {
         case LadderWin:
             break;
         case Brick:
-            if (brick_state) {
-                if (brick_state > 292) {
+            if (brick_timer) {
+                if (brick_timer > 292) {
                     fb.blit(gfx::tiles::brick, {x, y}, {});
-                    fb.rect({x, y}, {8, u32(300 - brick_state)}, w4::draw::DrawIndex::Fourth, w4::draw::DrawIndex::Transparent);
-                } else if (brick_state < 8) {
+                    fb.rect({x, y}, {8, u32(300 - brick_timer)}, w4::draw::DrawIndex::Fourth, w4::draw::DrawIndex::Transparent);
+                } else if (brick_timer < 8) {
                     fb.blit(gfx::tiles::brick, {x, y}, {});
-                    fb.rect({x, y}, {8, u32(brick_state)}, w4::draw::DrawIndex::Fourth, w4::draw::DrawIndex::Transparent);
+                    fb.rect({x, y}, {8, brick_timer}, w4::draw::DrawIndex::Fourth, w4::draw::DrawIndex::Transparent);
                 }
                 break;
             }
-            // TODO: breakage
         case BrickFake:
             fb.blit(gfx::tiles::brick, {x, y}, {});
             break;
@@ -84,7 +85,7 @@ struct Tile {
     auto prevents_fall() const -> bool {
         switch (tag) {
         case Brick:
-            if (brick_state) return false;
+            if (brick_timer) return false;
         case BrickHard:
         case Ladder:
             return true;
@@ -107,7 +108,7 @@ struct Tile {
         case Gold:
             return false;
         case Brick:
-            if (brick_state) return false;
+            if (brick_timer) return false;
         case BrickHard:
             return true;
         }
@@ -153,7 +154,7 @@ struct Chunk {
         };
         struct Subchunk {
             u8 length : 3;
-            u8 tag : 2;
+            Tag tag : 2;
         } PACKED;
 
         Subchunk subchunks[3];
@@ -205,7 +206,8 @@ struct Jeff {
     };
 
     void draw(w4::draw::Framebuffer &fb, State state) const {
-        w4::draw::BlitTransform flags;
+        using w4::draw::BlitTransform;
+        BlitTransform flags;
 
         usize index;
         switch(state) {
@@ -213,19 +215,19 @@ struct Jeff {
         case State::Normal:
             index = x / 8 % 2 ? 1 : 0;
             if (direction == Direction::Left) {
-                flags |= w4::draw::BlitTransform::FLIP_X;
+                flags |= BlitTransform::FLIP_X;
             }
             break;
         case State::Roping:
             index = x / 8 % 2 ? 3 : 2;
             if (direction == Direction::Left) {
-                flags |= w4::draw::BlitTransform::FLIP_X;
+                flags |= BlitTransform::FLIP_X;
             }
             break;
         case State::Climbing:
             index = 4;
             if (y / 8 % 2 == 1) {
-                flags |= w4::draw::BlitTransform::FLIP_X;
+                flags |= BlitTransform::FLIP_X;
             }
             break;
         }
@@ -307,9 +309,54 @@ struct Jeff {
 };
 
 struct Enemy : Jeff {
+    // NOTE: readonly. Don't care to enforce
     u8 spawn_x;
     u8 spawn_y;
-    void draw(w4::draw::Framebuffer &fb, State state) const {
+
+    // double ticks
+    u8 respawn_timer = 0;
+    u8 getout_timer = 0;
+
+    struct State {
+        struct Chase {
+            struct FindLadder {};
+
+            using Inner = std::variant<
+                FindLadder
+            >;
+            Inner state;
+        };
+        struct Trapped {
+            u8 timer;
+        };
+        struct Dead {
+            u8 timer;
+        };
+
+        using Inner = std::variant<
+            Chase,
+            Trapped,
+            Dead
+        >;
+        Inner state;
+    };
+
+    // enum class State {
+    //     Chase, // when Y is equal, try to equalize X
+    //     // if player is above:
+    //     FindLadder, // chase towards closest ladder on the layer
+    //     Climb,
+    //     // if player is below:
+    //     FindWayDown, // find closest ladder, empty or FakeBrick™ one layer below
+    //     Fall,
+    //     // if inside a broken brick:
+    //     Trapped, // wait until getout timer ends, transition to getout
+    //     Getout, // climb out diagonally in X direction of player
+    //     // respawn_timer != 0
+    //     Dead,
+    // };
+
+    void draw(w4::draw::Framebuffer &fb, Jeff::State state) const {
         w4::draw::BlitTransform flags;
 
         if (direction == Direction::Left) {
@@ -317,16 +364,22 @@ struct Enemy : Jeff {
         }
 
         (void)state;
-        gfx::tiles::jeff[0].blit_with_colors(
-            {x, y},
-            {w4::draw::DrawIndex::Transparent, w4::draw::DrawIndex::Third},
+        this->blit(
+            gfx::tiles::jeff[0],
+            w4::draw::DrawIndex::Third,
             flags,
             fb
         );
     }
 
-    template<typename ...Ts>
-    Enemy(Ts ...ts) : Jeff(ts...) {}
+    void update() {
+        if (respawn_timer) {
+            getout_timer = 0;
+            respawn_timer -= 1;
+        } else if (getout_timer) {
+            getout_timer -= 1;
+        }
+    }
 };
 
 struct Level {
@@ -339,6 +392,7 @@ struct Level {
     std::array<std::optional<Enemy>, 4> enemies;
 
     bool win = false;
+    u32 tick_count = 0;
 
     enum class State {
         Play,
@@ -346,12 +400,12 @@ struct Level {
         Lose
     };
 
-    // returns win
     auto update(w4::control::Gamepad::State input) -> State {
-        // Emplace wincon if there's no gold left and stop checking
+        tick_count++;
         for (auto &tile : terrain) {
-            if (tile == Tile::Brick && tile.brick_state != 0) tile.brick_state--;
+            if (tile == Tile::Brick && tile.brick_timer != 0) tile.brick_timer--;
         }
+        // Emplace wincon if there's no gold left and stop checking
         if (!win) {
             win = true;
             for (const auto &tile : terrain) {
@@ -371,7 +425,7 @@ struct Level {
         // update player
         usize player_pos = player.getX() + player.getY() * GRID_WIDTH;
         auto &current_tile = terrain[player_pos];
-        if (current_tile == Tile::Brick && !current_tile.brick_state) {
+        if (current_tile == Tile::Brick && !current_tile.brick_timer) {
             return State::Lose;
         }
         if (current_tile == Tile::Gold) {
@@ -408,6 +462,7 @@ struct Level {
 
         do {
             usize break_pos;
+            // TODO: prioritize latest input instead of an elseif cascade
             if (input.buttons[1]) {
                 break_pos = player_pos + GRID_WIDTH - 1;
             } else if (input.buttons[0]) {
@@ -416,24 +471,88 @@ struct Level {
                 break;
             }
             if (terrain[break_pos] == Tile::Brick
-                && terrain[break_pos].brick_state == 0
+                && terrain[break_pos].brick_timer == 0
                 && (terrain[break_pos - GRID_WIDTH] == Tile::None
                     || terrain[break_pos - GRID_WIDTH == Tile::Gold])) {
-                terrain[break_pos].brick_state = 300;
+                terrain[break_pos].brick_timer = 300;
             }
         } while(0);
 
+        // Enemies are twice as slow as player
+        if (tick_count % 2) {
+            for (auto &enemy : enemies) {
+                // enemy.transform([](Enemy &enemy) {
+                //     return std::optional(std::monostate());
+                // });
+                if (!enemy) continue;
+                enemy->update();
+                if (enemy->respawn_timer) {
+                    // TODO: respawn animation
+                    continue;
+                }
+                if (jeff_state(*enemy) == Jeff::State::Falling) {
+                    enemy->move(Direction::Down);
+                    continue;
+                }
+
+                usize enemy_pos = enemy->getX() + enemy->getY() * GRID_WIDTH;
+                auto &current_tile = terrain[enemy_pos];
+
+                if (current_tile == Tile::Brick) {
+                    if (enemy->getout_timer == 0) {
+                        enemy->getout_timer = 30;
+                        continue;
+                    }
+                    if (enemy->getout_timer == 1) {
+                        // get out in direction of player
+                        // TODO: get out animation?
+                        continue;
+                    }
+                    enemy->getout_timer--;
+                    if (current_tile.brick_timer == 0) {
+                        // TODO: Death animation?
+                        enemy->respawn_timer = 10;
+                        enemy->x = enemy->spawn_x;
+                        enemy->y = enemy->spawn_y;
+                        continue;
+                    }
+                }
+
+                Direction direction = [&] {
+                    if (enemy->x > player.x) {
+                        return Direction::Left;
+                    } else {
+                        return Direction::Right;
+                    }
+                }();
+
+                if (enemy->y == player.y) {
+                    enemy->move(direction);
+                    continue;
+                }
+
+                if (enemy->y < player.y) {
+                    std::span<const Tile> row = std::span(terrain).subspan(enemy->getY() * GRID_WIDTH, enemy->getY() * (GRID_WIDTH + 1));
+                    switch (direction) {
+                    case Direction::Right:
+                        break;
+                    case Direction::Left:
+                        break;
+                    default:
+                        std::unreachable();
+                    }
+                    // row = row.subspan(enemy->getX())
+                    // usize initial = enemy->getX();
+                    // Find closest ladder in direction of player
+                }
+            }
+        }
+
         // wincon
-        if (player.alignedY() && player.y == 0) {
+        if (player.alignedY() && player.y == 0 && win) {
             return State::Win;
         } else {
             return State::Play;
-        }
-
-        for (auto &enemy : enemies) {
-            if (enemy) {
-                // TODO: enemy logic
-            }
         }
     }
 
@@ -447,7 +566,7 @@ struct Level {
         // player
         player.draw(fb, jeff_state(player));
 
-        fb.text(DEBUG, {3, 160 - 13}, w4::draw::DrawIndex::First, w4::draw::DrawIndex::Fourth);
+        if constexpr (IS_DEBUG) fb.text(DEBUG, {3, 160 - 13}, w4::draw::DrawIndex::First, w4::draw::DrawIndex::Fourth);
 
         // enemies
         for(const auto &enemy : enemies) {
@@ -493,19 +612,19 @@ struct Level {
         usize jeff_pos = jeff.getX() + jeff.getY() * GRID_WIDTH;
         if (terrain[jeff_pos] == Tile::Ladder
         || (terrain[jeff_pos + GRID_WIDTH] == Tile::Ladder && !jeff.alignedY())) {
-            DEBUG = "Climbing";
+            if constexpr (IS_DEBUG) DEBUG = "Climbing";
             return Jeff::State::Climbing;
         }
         if (terrain[jeff_pos] == Tile::Rope && player.alignedY()) {
-            DEBUG = "Roping";
+            if constexpr (IS_DEBUG) DEBUG = "Roping";
             return Jeff::State::Roping;
         }
         if (!((terrain[jeff_pos + GRID_WIDTH].prevents_fall() || player.y == GRID_HEIGHT * 8 - 8) && jeff.alignedY())) {
-            DEBUG = "Falling";
+            if constexpr (IS_DEBUG) DEBUG = "Falling";
             return Jeff::State::Falling;
         }
 
-        DEBUG = "Normal";
+        if constexpr (IS_DEBUG) DEBUG = "Normal";
         return Jeff::State::Normal;
     }
 
@@ -623,7 +742,7 @@ struct Loderunner {
                 .terrain = terrain,
                 .player = { .x = 3 * 8, .y = 0 },
                 .enemies = {
-                    Enemy { (u8)0, (u8)0 }
+                    Enemy { .spawn_x = 0, .spawn_y = 0 }
                 },
             }
         };

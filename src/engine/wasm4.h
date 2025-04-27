@@ -1,6 +1,7 @@
 #pragma once
 
 #include <bitset>
+#include <concepts>
 #include <cstdint>
 #include <array>
 #include <cstddef>
@@ -303,9 +304,16 @@ namespace rt {
             } {}
     };
 }
+
+template<typename T>
+concept Runtime = requires(T rt, w4::rt::Resources res) {
+    { T::start(res) } -> std::same_as<T>;
+    rt.update();
+};
 }
 
 #define main(Rt)                                     \
+static_assert(w4::Runtime<Rt>);                      \
 static u8 RUNTIME[sizeof(Rt)];                       \
 void w4::sys::start() {                              \
     *(Rt *)RUNTIME = Rt::start(w4::rt::Resources()); \
