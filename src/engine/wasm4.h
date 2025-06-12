@@ -314,12 +314,12 @@ concept Runtime = requires(T rt, w4::rt::Resources res) {
 
 #define main(Rt)                                     \
 static_assert(w4::Runtime<Rt>);                      \
-static u8 RUNTIME[sizeof(Rt)];                       \
+static u8 RUNTIME alignas(alignof(Rt)) [sizeof(Rt)]; \
 void w4::sys::start() {                              \
-    *(Rt *)RUNTIME = Rt::start(w4::rt::Resources()); \
+    new (RUNTIME) Rt(Rt::start(w4::rt::Resources()));\
 }                                                    \
 void w4::sys::update() {                             \
-    ((Rt *)RUNTIME)->update();                       \
+    std::launder((Rt *)RUNTIME)->update();           \
 }
 
 #undef SCREEN_SIZE
