@@ -1,0 +1,68 @@
+name: Deploy wasm4 game
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+# permissions:
+#   contents: read
+#   pages: write
+#   id-token: write
+
+env:
+  SDK_VERSION: wasi-sdk-25.0-x86_64-linux
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up wasi-sdk
+        run: |
+          wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/$SDK_VERSION.tar.gz
+          tar xf $SDK_VERSION.tar.gz
+
+      - name: Build the cart
+        env:
+          WASI_SDK_PATH: ./${{ env.SDK_VERSION }}
+        run: make
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install w4
+        run: bun install wasm4
+
+      - name: Bundle cart into html
+        run: |
+          mkdir out
+          node_modules/wasm4/cli.js bundle build/cart.wasm --title loderunner --html ./out/index.html --description "Loderunner implementation in wasm4"
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload pages artifact
+        uses: actions/upload-pages/artifact@v3
+        with:
+          path: ./out
+
+  deploy:
+    needs: build
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy pages
+        uses: actions/deploy-pages@v4
