@@ -1,7 +1,6 @@
 #include "engine/wasm4.h"
 #include "engine/gfx.h"
 #include <array>
-#include <bit>
 #include <cstring>
 #include <optional>
 #include <span>
@@ -115,82 +114,82 @@ struct Tile {
     }
 };
 
-namespace compress {
-// TODO: unpacking
-#define PACKED __attribute__((packed))
-struct Chunk {
-    bool is_rle : 1;
-    u16 data : 15;
-
-    static auto non_rle(std::array<Tile, 5> batch) -> Chunk {
-        struct Batch {
-            u8 a : 3;
-            u8 b : 3;
-            u8 c : 3;
-            u8 d : 3;
-            u8 e : 3;
-        } PACKED data;
-        static_assert(sizeof(Batch) == 2);
-
-        data.a = batch[0];
-        data.b = batch[1];
-        data.c = batch[2];
-        data.d = batch[3];
-        data.e = batch[4];
-
-        return {
-            .is_rle = false,
-            .data = std::bit_cast<u16>(data),
-        };
-    }
-
-    // Input is checked to only contain compatible tiles
-    static auto rle(std::array<std::pair<u8, Tile>, 3> batch) -> Chunk {
-        enum Tag : u8 {
-            None = 0b00,
-            Brick = 0b01,
-            BrickHard = 0b10,
-            Rope = 0b11,
-        };
-        struct Subchunk {
-            u8 length : 3;
-            Tag tag : 2;
-        } PACKED;
-
-        Subchunk subchunks[3];
-        for (usize i = 0; i < 3; i++) {
-            subchunks[i].length = batch[i].first;
-            switch (batch[i].second) {
-            case Tile::None:
-                subchunks[i].tag = Tag::None;
-                break;
-            case Tile::Brick:
-                subchunks[i].tag = Tag::Brick;
-                break;
-            case Tile::BrickHard:
-                subchunks[i].tag = Tag::BrickHard;
-                break;
-            case Tile::Rope:
-                subchunks[i].tag = Tag::Rope;
-                break;
-            default:
-                std::unreachable();
-            }
-        }
-
-        return {
-            .is_rle = true,
-            .data = static_cast<u16>(
-                std::bit_cast<u8>(subchunks[0])
-              | std::bit_cast<u8>(subchunks[1]) << 5
-              | std::bit_cast<u8>(subchunks[2]) << 10
-            ),
-        };
-    }
-} PACKED;
-static_assert(sizeof(Chunk) == 2);
-#undef PACKED
-}
+// namespace compress {
+// // TODO: unpacking
+// #define PACKED __attribute__((packed))
+// struct Chunk {
+//     bool is_rle : 1;
+//     u16 data : 15;
+//
+//     static auto non_rle(std::array<Tile, 5> batch) -> Chunk {
+//         struct Batch {
+//             u8 a : 3;
+//             u8 b : 3;
+//             u8 c : 3;
+//             u8 d : 3;
+//             u8 e : 3;
+//         } PACKED data;
+//         static_assert(sizeof(Batch) == 2);
+//
+//         data.a = batch[0];
+//         data.b = batch[1];
+//         data.c = batch[2];
+//         data.d = batch[3];
+//         data.e = batch[4];
+//
+//         return {
+//             .is_rle = false,
+//             .data = std::bit_cast<u16>(data),
+//         };
+//     }
+//
+//     // Input is checked to only contain compatible tiles
+//     static auto rle(std::array<std::pair<u8, Tile>, 3> batch) -> Chunk {
+//         enum Tag : u8 {
+//             None = 0b00,
+//             Brick = 0b01,
+//             BrickHard = 0b10,
+//             Rope = 0b11,
+//         };
+//         struct Subchunk {
+//             u8 length : 3;
+//             Tag tag : 2;
+//         } PACKED;
+//
+//         Subchunk subchunks[3];
+//         for (usize i = 0; i < 3; i++) {
+//             subchunks[i].length = batch[i].first;
+//             switch (batch[i].second) {
+//             case Tile::None:
+//                 subchunks[i].tag = Tag::None;
+//                 break;
+//             case Tile::Brick:
+//                 subchunks[i].tag = Tag::Brick;
+//                 break;
+//             case Tile::BrickHard:
+//                 subchunks[i].tag = Tag::BrickHard;
+//                 break;
+//             case Tile::Rope:
+//                 subchunks[i].tag = Tag::Rope;
+//                 break;
+//             default:
+//                 std::unreachable();
+//             }
+//         }
+//
+//         return {
+//             .is_rle = true,
+//             .data = static_cast<u16>(
+//                 std::bit_cast<u8>(subchunks[0])
+//               | std::bit_cast<u8>(subchunks[1]) << 5
+//               | std::bit_cast<u8>(subchunks[2]) << 10
+//             ),
+//         };
+//     }
+// } PACKED;
+// static_assert(sizeof(Chunk) == 2);
+// #undef PACKED
+// }
 
 
 struct Jeff {
@@ -246,10 +245,10 @@ struct Jeff {
         w4::draw::Framebuffer &fb
     ) const {
         sprite.blit_with_colors(
+            fb,
             {x, y},
             {w4::draw::DrawIndex::Transparent, color},
-            flags,
-            fb
+            flags
         );
     }
 

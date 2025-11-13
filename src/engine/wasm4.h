@@ -9,6 +9,7 @@
 #include <optional>
 #include <span>
 #include <stdint.h>
+#include <new> // IWYU pragma: keep
 
 using u8 = uint8_t;
 using u16 = uint16_t;
@@ -44,7 +45,7 @@ namespace control {
             Buttons buttons;
         };
 
-        State state() const {
+        auto state() const -> State {
             return {
                 .x = *MOUSE_X,
                 .y = *MOUSE_Y,
@@ -68,7 +69,7 @@ namespace control {
             std::array<bool, 2> buttons;
             Directions dpad;
 
-            State clean() const {
+            auto clean() const -> State {
                 return {
                     buttons,
                     {
@@ -134,13 +135,13 @@ namespace draw {
     template<typename T>
     concept Blit = requires(
         T self,
+        Framebuffer &fb,
         std::array<i32, 2> start,
         BlitTransform transform,
-        Framebuffer &fb,
         DrawIndices colors
     ) {
-        self.blit(start, transform, fb);
-        self.blit_with_colors(start, colors, transform, fb);
+        self.blit(fb, start, transform);
+        self.blit_with_colors(fb, start, colors, transform);
     };
 
     enum class DrawIndex : u16 {
@@ -176,10 +177,10 @@ namespace draw {
     template<usize N>
     struct Sprite {
         void blit_with_colors(
+            Framebuffer &framebuffer,
             std::array<i32, 2> start,
             DrawIndices colors,
-            BlitTransform transform,
-            Framebuffer &framebuffer
+            BlitTransform transform
         ) const {
             BlitFlags flags = bpp | transform;
 
@@ -191,11 +192,11 @@ namespace draw {
         }
 
         void blit(
+            Framebuffer &framebuffer,
             std::array<i32, 2> start,
-            BlitTransform transform,
-            Framebuffer &framebuffer
+            BlitTransform transform
         ) const {
-            blit_with_colors(start, indices, transform, framebuffer);
+            blit_with_colors(framebuffer, start, indices, transform);
         }
 
         static auto from_byte_array(
@@ -278,9 +279,13 @@ namespace draw {
             set_indices(DrawIndices({color, bg}));
             sys::text(text, pos[0], pos[1]);
         }
+
         void blit(const Blit auto &sprite, std::array<i32, 2> start, BlitTransform transform) {
-            sprite.blit(start, transform, *this);
+            sprite.blit(*this, start, transform);
         }
+        // void blit(const Blit auto &sprite, std::array<i32, 2> start) {
+        //     sprite.blit(*this, start, {});
+        // }
     };
 }
 
